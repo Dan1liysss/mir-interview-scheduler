@@ -111,12 +111,16 @@
           </div>
           <span class="hint">Собеседование ведёт директор — секретарь подтвердит это время или предложит другое, если исходное уже занято.</span>
           <div class="field wizard-field" style="margin-top:0.5rem;">
-            <label for="why_school">Почему вы хотите обучаться именно в школе «Мир»?</label>
-            <textarea id="why_school" placeholder="Необязательно"></textarea>
+            <label for="why_school">Почему вы хотите обучаться именно в школе «Мир»? <span class="required-mark">*</span></label>
+            <textarea id="why_school"></textarea>
           </div>
           <div class="field wizard-field">
-            <label for="why_you">Почему мы должны взять именно вас?</label>
-            <textarea id="why_you" placeholder="Необязательно"></textarea>
+            <label for="why_you">Почему мы должны взять именно вас? <span class="required-mark">*</span></label>
+            <textarea id="why_you"></textarea>
+          </div>
+          <div class="field wizard-field">
+            <label for="about_you">Расскажите о себе в нескольких предложениях <span class="required-mark">*</span></label>
+            <textarea id="about_you"></textarea>
           </div>
         </div>
 
@@ -183,6 +187,9 @@ function validateStep(step) {
     if (!el('preferred_date').value || !el('preferred_time').value) {
       return 'Укажите желаемые дату и время.';
     }
+    if (!el('why_school').value.trim() || !el('why_you').value.trim() || !el('about_you').value.trim()) {
+      return 'Ответьте на все три вопроса анкеты.';
+    }
   }
   return null;
 }
@@ -234,6 +241,7 @@ form.addEventListener('submit', async (e) => {
     preferred_time: el('preferred_time').value,
     why_school: el('why_school').value.trim(),
     why_you: el('why_you').value.trim(),
+    about_you: el('about_you').value.trim(),
   };
 
   const submitBtn = el('submitBtn');

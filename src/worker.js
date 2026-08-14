@@ -58,7 +58,8 @@ function constantTimeEqual(a, b) {
 
 const REQUIRED_FIELDS = [
   "child_last_name", "child_first_name", "birth_date", "grade",
-  "parent_name", "phone", "email", "preferred_date", "preferred_time",
+  "parent_name", "phone", "email", "why_school", "why_you", "about_you",
+  "preferred_date", "preferred_time",
 ];
 
 function validateRequestBody(body) {
@@ -135,9 +136,9 @@ async function handleCreateRequest(request, env) {
   await env.DB.prepare(
     `INSERT INTO requests
       (status_token, child_last_name, child_first_name, birth_date, grade, current_school,
-       parent_name, phone, email, why_school, why_you, preferred_date, preferred_time,
+       parent_name, phone, email, why_school, why_you, about_you, preferred_date, preferred_time,
        status, round, seen_by_secretary, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
   )
     .bind(
       statusToken,
@@ -149,8 +150,9 @@ async function handleCreateRequest(request, env) {
       body.parent_name.trim(),
       body.phone.trim(),
       body.email.trim(),
-      (body.why_school || "").trim(),
-      (body.why_you || "").trim(),
+      body.why_school.trim(),
+      body.why_you.trim(),
+      body.about_you.trim(),
       body.preferred_date,
       body.preferred_time,
       ts,
@@ -348,7 +350,7 @@ async function handleSecretaryExportCsv(env) {
   const { results } = await env.DB.prepare("SELECT * FROM requests ORDER BY created_at DESC").all();
   const cols = [
     "id", "status", "child_last_name", "child_first_name", "birth_date", "grade", "current_school",
-    "parent_name", "phone", "email", "why_school", "why_you",
+    "parent_name", "phone", "email", "why_school", "why_you", "about_you",
     "preferred_date", "preferred_time", "proposed_date", "proposed_time", "secretary_note",
     "round", "created_at", "updated_at",
   ];

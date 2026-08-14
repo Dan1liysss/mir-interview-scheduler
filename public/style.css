@@ -173,7 +173,7 @@ h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.2; margin-bottom: 0.5
 }
 .step-indicator .step.active .circle { background: var(--accent); border-color: var(--accent); color: #fff; }
 .step-indicator .step.done .circle { background: var(--success); border-color: var(--success); color: #fff; }
-.step-indicator .label { font-size: 0.75rem; color: var(--ink-faint); white-space: nowrap; }
+.step-indicator .label { font-size: 0.75rem; color: var(--ink-faint); text-align: center; max-width: 5.5rem; }
 .step-indicator .step.active .label { color: var(--accent); font-weight: 700; }
 .step-indicator .step.done .label { color: var(--success); }
 .step-indicator .connector { flex-grow: 1; height: 1px; background: var(--line); min-width: 1.5rem; margin-bottom: 1.5rem; }
@@ -186,7 +186,36 @@ h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.2; margin-bottom: 0.5
   padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.9375rem;
 }
 
-.wizard-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; gap: 1rem; }
+.wizard-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem; gap: 0.75rem; flex-wrap: wrap; }
 .wizard-nav .spacer { flex-grow: 1; }
 
 .required-mark { color: var(--warn); }
+
+/* ============================================================
+   Мобильная адаптация
+   ============================================================ */
+
+@media (max-width: 600px) {
+  .wrap, .wizard-shell { padding-left: 1rem; padding-right: 1rem; }
+
+  .hero-photo { min-height: 150px; padding: 1.25rem 1.25rem; }
+  .hero-photo .school-tagline { display: none; } /* на узком экране приоритет — сама форма, а не текст под фото */
+
+  .wizard-body { padding: 1.5rem 1.25rem 1.25rem; }
+
+  .step-indicator { gap: 0.35rem; margin-bottom: 1.5rem; }
+  .step-indicator .circle { width: 2.1rem; height: 2.1rem; font-size: 0.875rem; }
+  .step-indicator .label { font-size: 0.65rem; max-width: 4rem; }
+  .step-indicator .connector { min-width: 0.75rem; margin-bottom: 1.2rem; }
+
+  /* Кнопки шага — на всю ширину, друг под другом, ошибка отдельной строкой сверху */
+  .wizard-nav .spacer { display: none; }
+  .wizard-nav .error-msg { order: -1; width: 100%; }
+  .wizard-nav #backBtn, .wizard-nav #nextBtn, .wizard-nav #submitBtn { flex: 1 1 auto; min-width: 0; }
+
+  .form-row.two-col { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 400px) {
+  .step-indicator .label { display: none; } /* совсем узкий экран — оставляем только кружки-шаги */
+}

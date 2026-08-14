@@ -118,6 +118,16 @@
             <label for="why_you">Почему мы должны взять именно вас? <span class="required-mark">*</span></label>
             <textarea id="why_you"></textarea>
           </div>
+          <div class="field wizard-field">
+            <label for="reminder_offset">Напоминание о собеседовании</label>
+            <select id="reminder_offset">
+              <option value="1_hour">За 1 час до собеседования</option>
+              <option value="3_hours">За 3 часа</option>
+              <option value="1_day" selected>За 1 день</option>
+              <option value="3_days">За 3 дня</option>
+            </select>
+            <span class="hint">В этой демо-версии письмо реально не отправляется — секретарь увидит ваш выбор в заявке.</span>
+          </div>
         </div>
 
         <div class="wizard-nav">
@@ -237,6 +247,7 @@ form.addEventListener('submit', async (e) => {
     preferred_time: el('preferred_time').value,
     why_school: el('why_school').value.trim(),
     why_you: el('why_you').value.trim(),
+    reminder_offset: el('reminder_offset').value,
   };
 
   const submitBtn = el('submitBtn');

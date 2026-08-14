@@ -62,6 +62,11 @@ const REQUIRED_FIELDS = [
   "preferred_date", "preferred_time",
 ];
 
+// Предпочтение по напоминанию — предпочтение для демонстрации, письмо реально
+// не отправляется (см. README: решили не подключать email-сервис).
+const REMINDER_OFFSETS = ["1_hour", "3_hours", "1_day", "3_days"];
+const DEFAULT_REMINDER_OFFSET = "1_day";
+
 function validateRequestBody(body) {
   for (const f of REQUIRED_FIELDS) {
     if (!body[f] || typeof body[f] !== "string" || !body[f].trim()) {
@@ -73,6 +78,9 @@ function validateRequestBody(body) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(body.birth_date)) return "Некорректный формат даты рождения.";
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email);
   if (!emailOk) return "Некорректный email.";
+  if (body.reminder_offset && !REMINDER_OFFSETS.includes(body.reminder_offset)) {
+    return "Некорректное значение напоминания.";
+  }
   return null;
 }
 
@@ -133,12 +141,16 @@ async function handleCreateRequest(request, env) {
   const statusToken = randomToken(24);
   const ts = nowIso();
 
+  const reminderOffset = REMINDER_OFFSETS.includes(body.reminder_offset)
+    ? body.reminder_offset
+    : DEFAULT_REMINDER_OFFSET;
+
   await env.DB.prepare(
     `INSERT INTO requests
       (status_token, child_last_name, child_first_name, birth_date, grade, current_school,
-       parent_name, phone, email, why_school, why_you, preferred_date, preferred_time,
+       parent_name, phone, email, why_school, why_you, reminder_offset, preferred_date, preferred_time,
        status, round, seen_by_secretary, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
   )
     .bind(
       statusToken,
@@ -152,6 +164,7 @@ async function handleCreateRequest(request, env) {
       body.email.trim(),
       body.why_school.trim(),
       body.why_you.trim(),
+      reminderOffset,
       body.preferred_date,
       body.preferred_time,
       ts,
@@ -349,7 +362,7 @@ async function handleSecretaryExportCsv(env) {
   const { results } = await env.DB.prepare("SELECT * FROM requests ORDER BY created_at DESC").all();
   const cols = [
     "id", "status", "child_last_name", "child_first_name", "birth_date", "grade", "current_school",
-    "parent_name", "phone", "email", "why_school", "why_you",
+    "parent_name", "phone", "email", "why_school", "why_you", "reminder_offset",
     "preferred_date", "preferred_time", "proposed_date", "proposed_time", "secretary_note",
     "round", "created_at", "updated_at",
   ];

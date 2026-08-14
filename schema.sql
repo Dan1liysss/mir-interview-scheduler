@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS requests (
     email TEXT NOT NULL,
     why_school TEXT NOT NULL,
     why_you TEXT NOT NULL,
+    reminder_offset TEXT NOT NULL DEFAULT '1_day',
     preferred_date TEXT NOT NULL,
     preferred_time TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',

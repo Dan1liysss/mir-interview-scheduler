@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Запись на собеседование — школа «Мир» (концепт)</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -38,6 +39,12 @@
       </div>
 
       <form id="requestForm" novalidate>
+        <!-- Honeypot: невидимое человеку поле-ловушка для ботов -->
+        <div style="position:absolute; left:-9999px; top:-9999px;" aria-hidden="true">
+          <label for="website">Website</label>
+          <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+        </div>
+
         <!-- Шаг 1: Ребёнок -->
         <div class="wizard-step active" data-step-panel="1">
           <div class="form-row two-col">
@@ -147,7 +154,10 @@
         </p>
         <div class="field">
           <label>Ваша личная ссылка</label>
-          <input type="text" id="statusLink" readonly class="mono" style="font-size:0.8rem;">
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="statusLink" readonly class="mono" style="font-size:0.8rem; flex:1;">
+            <button type="button" class="btn btn-secondary" id="copyLinkBtn">Скопировать</button>
+          </div>
         </div>
         <a class="btn btn-primary" id="openStatusBtn" href="#">Открыть статус заявки →</a>
       </div>
@@ -157,6 +167,7 @@
 
 <script>
 const el = (id) => document.getElementById(id);
+const form = el('requestForm');
 let currentStep = 1;
 const TOTAL_STEPS = 3;
 
@@ -224,7 +235,62 @@ document.querySelectorAll('.step-indicator .step').forEach((stepEl) => {
   stepEl.style.cursor = 'pointer';
 });
 
-const form = el('requestForm');
+// ---------------- маска телефона ----------------
+
+function formatPhoneRu(raw) {
+  let d = raw.replace(/\D/g, '');
+  if (d.startsWith('8')) d = '7' + d.slice(1);
+  if (d.length === 0) return '';
+  if (!d.startsWith('7')) d = '7' + d;
+  d = d.slice(0, 11);
+  const rest = d.slice(1);
+  let out = '+7';
+  if (rest.length > 0) out += ' (' + rest.slice(0, 3);
+  if (rest.length >= 3) out += ')';
+  if (rest.length > 3) out += ' ' + rest.slice(3, 6);
+  if (rest.length > 6) out += '-' + rest.slice(6, 8);
+  if (rest.length > 8) out += '-' + rest.slice(8, 10);
+  return out;
+}
+
+el('phone').addEventListener('input', (e) => {
+  const atEnd = e.target.selectionStart === e.target.value.length;
+  e.target.value = formatPhoneRu(e.target.value);
+  if (atEnd) e.target.setSelectionRange(e.target.value.length, e.target.value.length);
+});
+
+// ---------------- сохранение прогресса ----------------
+
+const DRAFT_KEY = 'mir_request_draft_v1';
+const DRAFT_FIELDS = [
+  'last_name', 'first_name', 'birth_date', 'grade', 'current_school',
+  'parent_name', 'phone', 'email', 'preferred_date', 'preferred_time',
+  'why_school', 'why_you', 'reminder_offset',
+];
+
+function saveDraft() {
+  const draft = { step: currentStep };
+  DRAFT_FIELDS.forEach((id) => { draft[id] = el(id).value; });
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch {}
+}
+
+function restoreDraft() {
+  let raw;
+  try { raw = localStorage.getItem(DRAFT_KEY); } catch { return; }
+  if (!raw) return;
+  let draft;
+  try { draft = JSON.parse(raw); } catch { return; }
+  DRAFT_FIELDS.forEach((id) => { if (draft[id]) el(id).value = draft[id]; });
+  if (draft.step) currentStep = Math.min(TOTAL_STEPS, Math.max(1, draft.step));
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch {}
+}
+
+form.addEventListener('input', saveDraft);
+form.addEventListener('change', saveDraft);
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const error = validateStep(3);
@@ -248,6 +314,7 @@ form.addEventListener('submit', async (e) => {
     why_school: el('why_school').value.trim(),
     why_you: el('why_you').value.trim(),
     reminder_offset: el('reminder_offset').value,
+    website: el('website').value, // honeypot — у людей всегда пусто
   };
 
   const submitBtn = el('submitBtn');
@@ -269,6 +336,7 @@ form.addEventListener('submit', async (e) => {
     form.style.display = 'none';
     el('stepIndicator').style.display = 'none';
     el('resultBlock').style.display = 'block';
+    clearDraft();
   } catch (err) {
     el('formError').textContent = err.message;
     el('formError').classList.add('show');
@@ -277,6 +345,20 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+el('copyLinkBtn').addEventListener('click', async () => {
+  const btn = el('copyLinkBtn');
+  const original = btn.textContent;
+  try {
+    await navigator.clipboard.writeText(el('statusLink').value);
+  } catch {
+    el('statusLink').select();
+    document.execCommand('copy');
+  }
+  btn.textContent = 'Скопировано ✓';
+  setTimeout(() => { btn.textContent = original; }, 1500);
+});
+
+restoreDraft();
 updateIndicator();
 </script>
 </body>

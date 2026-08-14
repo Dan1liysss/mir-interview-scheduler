@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS requests (
     why_school TEXT NOT NULL,
     why_you TEXT NOT NULL,
     reminder_offset TEXT NOT NULL DEFAULT '1_day',
+    ip_address TEXT,
     preferred_date TEXT NOT NULL,
     preferred_time TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -43,3 +44,4 @@ CREATE TABLE IF NOT EXISTS secretary_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
 CREATE INDEX IF NOT EXISTS idx_requests_token ON requests(status_token);
+CREATE INDEX IF NOT EXISTS idx_requests_ip ON requests(ip_address, created_at);

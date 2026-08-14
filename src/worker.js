@@ -18,6 +18,7 @@
  *   GET  /api/secretary/requests                 — список всех заявок (нужен Bearer-токен сессии)
  *   GET  /api/secretary/requests/:id             — детали одной заявки (помечает как "просмотрено")
  *   POST /api/secretary/requests/:id/decide       — approve / propose / reject
+ *   DELETE /api/secretary/requests/:id              — удалить (только отклонённые)
  *   GET  /api/secretary/export.csv                — выгрузка всех заявок в CSV
  *
  * Всё остальное (статика) отдаётся биндингом ASSETS из ./public автоматически.
@@ -25,6 +26,8 @@
 
 const MAX_ROUNDS = 3; // сколько раз родитель и секретарь могут перепредлагать время, прежде чем заявка "протухнет"
 const SESSION_TTL_HOURS = 12;
+const RATE_LIMIT_MAX = 5;              // не больше стольки заявок
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // за час с одного IP
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -135,8 +138,28 @@ async function handleCreateRequest(request, env) {
     return err("Некорректный JSON.");
   }
 
+  // Honeypot: невидимое обычным пользователям поле. Боты, заполняющие все
+  // поля формы подряд, попадаются на нём — заявку молча "принимаем" (не
+  // выдавая боту, что его вычислили), но в базу не пишем.
+  if (typeof body.website === "string" && body.website.trim() !== "") {
+    return json({ status_token: randomToken(24) });
+  }
+
   const validationError = validateRequestBody(body);
   if (validationError) return err(validationError);
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (ip !== "unknown") {
+    const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+    const recentCount = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM requests WHERE ip_address = ? AND created_at > ?"
+    )
+      .bind(ip, windowStart)
+      .first();
+    if ((recentCount?.n || 0) >= RATE_LIMIT_MAX) {
+      return err("Слишком много заявок с этого адреса за последний час. Попробуйте позже.", 429);
+    }
+  }
 
   const statusToken = randomToken(24);
   const ts = nowIso();
@@ -148,9 +171,10 @@ async function handleCreateRequest(request, env) {
   await env.DB.prepare(
     `INSERT INTO requests
       (status_token, child_last_name, child_first_name, birth_date, grade, current_school,
-       parent_name, phone, email, why_school, why_you, reminder_offset, preferred_date, preferred_time,
+       parent_name, phone, email, why_school, why_you, reminder_offset, ip_address,
+       preferred_date, preferred_time,
        status, round, seen_by_secretary, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
   )
     .bind(
       statusToken,
@@ -165,6 +189,7 @@ async function handleCreateRequest(request, env) {
       body.why_school.trim(),
       body.why_you.trim(),
       reminderOffset,
+      ip,
       body.preferred_date,
       body.preferred_time,
       ts,
@@ -352,6 +377,20 @@ async function handleSecretaryDecide(id, request, env) {
   return err("Неизвестное действие.");
 }
 
+async function handleSecretaryDelete(id, env) {
+  const row = await env.DB.prepare("SELECT status FROM requests WHERE id = ?").bind(id).first();
+  if (!row) return err("Заявка не найдена.", 404);
+
+  // Удалять можно только уже отклонённые заявки — так проще случайно не
+  // стереть что-то активное. Остальные статусы сначала нужно отклонить.
+  if (row.status !== "rejected") {
+    return err("Удалять можно только отклонённые заявки.", 409);
+  }
+
+  await env.DB.prepare("DELETE FROM requests WHERE id = ?").bind(id).run();
+  return json({ deleted: true });
+}
+
 function csvEscape(value) {
   const s = String(value ?? "");
   if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
@@ -422,6 +461,9 @@ export default {
         }
         if ((m = path.match(/^\/api\/secretary\/requests\/(\d+)\/decide$/)) && method === "POST") {
           return await handleSecretaryDecide(Number(m[1]), request, env);
+        }
+        if ((m = path.match(/^\/api\/secretary\/requests\/(\d+)$/)) && method === "DELETE") {
+          return await handleSecretaryDelete(Number(m[1]), env);
         }
         if (path === "/api/secretary/export.csv" && method === "GET") {
           return await handleSecretaryExportCsv(env);

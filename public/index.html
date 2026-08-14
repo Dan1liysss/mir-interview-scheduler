@@ -12,111 +12,218 @@
   <span><strong>Концепт-прототип</strong> — демонстрация идеи для сайта школы «Мир», не официальная запись</span>
 </div>
 
-<div class="wrap">
-  <span class="eyebrow">Заявка на собеседование</span>
-  <h1>Запись на собеседование</h1>
-  <p class="lede">
-    Заполните форму — заявка уйдёт директору. Собеседование ведёт лично директор,
-    график у него плотный и меняется каждый день, поэтому итоговое время подтверждает
-    именно он: он либо согласится на предложенное вами время, либо предложит своё.
-  </p>
-
-  <form class="card" id="requestForm" novalidate>
-    <div class="field">
-      <label for="grade">Класс поступления</label>
-      <select id="grade" required>
-        <option value="">Выберите…</option>
-        <option>Дошкольная группа</option>
-        <option>Начальная школа (1–4)</option>
-        <option>Средняя школа (5–9)</option>
-        <option>Старшая школа (10–11)</option>
-      </select>
+<div class="wizard-shell">
+  <div class="wizard-frame">
+    <div class="hero-photo" style="background-image:url('/img/school-hero.webp');">
+      <div class="school-name">Школа<br>Мир</div>
+      <p class="school-tagline">Запись на собеседование при поступлении</p>
     </div>
 
-    <div class="form-row two-col">
-      <div class="field">
-        <label for="child_name">ФИО ребёнка</label>
-        <input type="text" id="child_name" required autocomplete="off">
+    <div class="wizard-body">
+      <div class="step-indicator" id="stepIndicator">
+        <div class="step active" data-step="1">
+          <div class="circle">1</div>
+          <div class="label">Ребёнок</div>
+        </div>
+        <div class="connector" data-connector="1"></div>
+        <div class="step" data-step="2">
+          <div class="circle">2</div>
+          <div class="label">Родители</div>
+        </div>
+        <div class="connector" data-connector="2"></div>
+        <div class="step" data-step="3">
+          <div class="circle">3</div>
+          <div class="label">Дополнительно</div>
+        </div>
       </div>
-      <div class="field">
-        <label for="parent_name">ФИО родителя</label>
-        <input type="text" id="parent_name" required autocomplete="off">
+
+      <form id="requestForm" novalidate>
+        <!-- Шаг 1: Ребёнок -->
+        <div class="wizard-step active" data-step-panel="1">
+          <div class="form-row two-col">
+            <div class="field wizard-field">
+              <label for="last_name">Фамилия <span class="required-mark">*</span></label>
+              <input type="text" id="last_name" autocomplete="off">
+            </div>
+            <div class="field wizard-field">
+              <label for="first_name">Имя <span class="required-mark">*</span></label>
+              <input type="text" id="first_name" autocomplete="off">
+            </div>
+          </div>
+          <div class="field wizard-field">
+            <label for="birth_date">Дата рождения <span class="required-mark">*</span></label>
+            <input type="date" id="birth_date">
+          </div>
+          <div class="field wizard-field">
+            <label for="grade">Класс, на который поступаете <span class="required-mark">*</span></label>
+            <select id="grade">
+              <option value="">Выберите…</option>
+              <option>Дошкольная группа</option>
+              <option>Начальная школа (1–4)</option>
+              <option>Средняя школа (5–9)</option>
+              <option>Старшая школа (10–11)</option>
+            </select>
+          </div>
+          <div class="field wizard-field">
+            <label for="current_school">Текущая школа</label>
+            <input type="text" id="current_school" autocomplete="off" placeholder="Необязательно">
+          </div>
+        </div>
+
+        <!-- Шаг 2: Родители -->
+        <div class="wizard-step" data-step-panel="2">
+          <div class="field wizard-field">
+            <label for="parent_name">ФИО родителя <span class="required-mark">*</span></label>
+            <input type="text" id="parent_name" autocomplete="off">
+          </div>
+          <div class="form-row two-col">
+            <div class="field wizard-field">
+              <label for="phone">Телефон <span class="required-mark">*</span></label>
+              <input type="tel" id="phone" autocomplete="off" placeholder="+7 900 000-00-00">
+            </div>
+            <div class="field wizard-field">
+              <label for="email">Email <span class="required-mark">*</span></label>
+              <input type="email" id="email" autocomplete="off" placeholder="mail@example.com">
+            </div>
+          </div>
+          <span class="hint">На email ничего не отправляется автоматически (это демо) — статус смотрите по личной ссылке после отправки.</span>
+        </div>
+
+        <!-- Шаг 3: Дополнительно -->
+        <div class="wizard-step" data-step-panel="3">
+          <div class="form-row two-col">
+            <div class="field wizard-field">
+              <label for="preferred_date">Желаемая дата собеседования <span class="required-mark">*</span></label>
+              <input type="date" id="preferred_date">
+            </div>
+            <div class="field wizard-field">
+              <label for="preferred_time">Желаемое время <span class="required-mark">*</span></label>
+              <input type="time" id="preferred_time">
+            </div>
+          </div>
+          <span class="hint">Собеседование ведёт директор — секретарь подтвердит это время или предложит другое, если исходное уже занято.</span>
+          <div class="field wizard-field" style="margin-top:0.5rem;">
+            <label for="comment">Комментарий</label>
+            <textarea id="comment" placeholder="Необязательно — например, есть вопрос по программе"></textarea>
+          </div>
+        </div>
+
+        <div class="wizard-nav">
+          <button type="button" class="btn btn-secondary" id="backBtn" style="display:none;">← Назад</button>
+          <span class="spacer"></span>
+          <span class="error-msg" id="formError"></span>
+          <button type="button" class="btn btn-primary" id="nextBtn">Далее →</button>
+          <button type="submit" class="btn btn-primary" id="submitBtn" style="display:none;">Отправить заявку</button>
+        </div>
+      </form>
+
+      <div id="resultBlock" style="display:none;">
+        <h2 style="font-size:1.2rem; margin-bottom:0.75rem;">Заявка отправлена</h2>
+        <p style="color:var(--ink-soft); margin-bottom:1rem; font-size:0.9375rem;">
+          Сохраните эту ссылку — по ней можно проверить статус и подтвердить время,
+          если секретарь предложит другое. В реальной версии ссылка приходила бы на email.
+        </p>
+        <div class="field">
+          <label>Ваша личная ссылка</label>
+          <input type="text" id="statusLink" readonly class="mono" style="font-size:0.8rem;">
+        </div>
+        <a class="btn btn-primary" id="openStatusBtn" href="#">Открыть статус заявки →</a>
       </div>
     </div>
-
-    <div class="form-row two-col">
-      <div class="field">
-        <label for="phone">Телефон</label>
-        <input type="tel" id="phone" required autocomplete="off" placeholder="+7 900 000-00-00">
-      </div>
-      <div class="field">
-        <label for="email">Email</label>
-        <input type="email" id="email" required autocomplete="off" placeholder="mail@example.com">
-        <span class="hint">На него ничего не отправляется автоматически (это демо) — статус смотрите по личной ссылке после отправки.</span>
-      </div>
-    </div>
-
-    <div class="form-row two-col">
-      <div class="field">
-        <label for="preferred_date">Желаемая дата</label>
-        <input type="date" id="preferred_date" required>
-      </div>
-      <div class="field">
-        <label for="preferred_time">Желаемое время</label>
-        <input type="time" id="preferred_time" required>
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="comment">Комментарий (необязательно)</label>
-      <textarea id="comment" placeholder="Например: переходим из другой школы, есть вопрос по программе"></textarea>
-    </div>
-
-    <button type="submit" class="btn btn-primary" id="submitBtn">Отправить заявку</button>
-    <span class="error-msg" id="formError"></span>
-  </form>
-
-  <div class="card" id="resultCard" style="display:none; margin-top:1.5rem;">
-    <h2 style="font-size:1.2rem; margin-bottom:0.75rem;">Заявка отправлена</h2>
-    <p style="color:var(--ink-soft); margin-bottom:1rem;">
-      Сохраните эту ссылку — по ней можно проверить статус и, если директор предложит другое время,
-      подтвердить его. В реальной версии эта ссылка приходила бы на email.
-    </p>
-    <div class="field">
-      <label>Ваша личная ссылка</label>
-      <input type="text" id="statusLink" readonly class="mono" style="font-size:0.8rem;">
-    </div>
-    <a class="btn btn-primary" id="openStatusBtn" href="#">Открыть статус заявки →</a>
   </div>
 </div>
 
 <script>
-const form = document.getElementById('requestForm');
-const submitBtn = document.getElementById('submitBtn');
-const formError = document.getElementById('formError');
+const el = (id) => document.getElementById(id);
+let currentStep = 1;
+const TOTAL_STEPS = 3;
 
+function updateIndicator() {
+  document.querySelectorAll('.step-indicator .step').forEach((stepEl) => {
+    const n = Number(stepEl.dataset.step);
+    stepEl.classList.toggle('active', n === currentStep);
+    stepEl.classList.toggle('done', n < currentStep);
+  });
+  document.querySelectorAll('.step-indicator .connector').forEach((c) => {
+    c.classList.toggle('done', Number(c.dataset.connector) < currentStep);
+  });
+  document.querySelectorAll('.wizard-step').forEach((p) => {
+    p.classList.toggle('active', Number(p.dataset.stepPanel) === currentStep);
+  });
+  el('backBtn').style.display = currentStep > 1 ? 'inline-flex' : 'none';
+  el('nextBtn').style.display = currentStep < TOTAL_STEPS ? 'inline-flex' : 'none';
+  el('submitBtn').style.display = currentStep === TOTAL_STEPS ? 'inline-flex' : 'none';
+  el('formError').classList.remove('show');
+}
+
+function validateStep(step) {
+  if (step === 1) {
+    if (!el('last_name').value.trim() || !el('first_name').value.trim() || !el('birth_date').value || !el('grade').value) {
+      return 'Заполните фамилию, имя, дату рождения и класс.';
+    }
+  }
+  if (step === 2) {
+    if (!el('parent_name').value.trim() || !el('phone').value.trim() || !el('email').value.trim()) {
+      return 'Заполните ФИО родителя, телефон и email.';
+    }
+  }
+  if (step === 3) {
+    if (!el('preferred_date').value || !el('preferred_time').value) {
+      return 'Укажите желаемые дату и время.';
+    }
+  }
+  return null;
+}
+
+el('nextBtn').addEventListener('click', () => {
+  const error = validateStep(currentStep);
+  if (error) {
+    el('formError').textContent = error;
+    el('formError').classList.add('show');
+    return;
+  }
+  currentStep = Math.min(TOTAL_STEPS, currentStep + 1);
+  updateIndicator();
+});
+
+el('backBtn').addEventListener('click', () => {
+  currentStep = Math.max(1, currentStep - 1);
+  updateIndicator();
+});
+
+document.querySelectorAll('.step-indicator .step').forEach((stepEl) => {
+  stepEl.addEventListener('click', () => {
+    const target = Number(stepEl.dataset.step);
+    if (target < currentStep) { currentStep = target; updateIndicator(); }
+  });
+  stepEl.style.cursor = 'pointer';
+});
+
+const form = el('requestForm');
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  formError.classList.remove('show');
-
-  const payload = {
-    grade: document.getElementById('grade').value,
-    child_name: document.getElementById('child_name').value.trim(),
-    parent_name: document.getElementById('parent_name').value.trim(),
-    phone: document.getElementById('phone').value.trim(),
-    email: document.getElementById('email').value.trim(),
-    preferred_date: document.getElementById('preferred_date').value,
-    preferred_time: document.getElementById('preferred_time').value,
-    comment: document.getElementById('comment').value.trim(),
-  };
-
-  if (!payload.grade || !payload.child_name || !payload.parent_name || !payload.phone ||
-      !payload.email || !payload.preferred_date || !payload.preferred_time) {
-    formError.textContent = 'Заполните все обязательные поля.';
-    formError.classList.add('show');
+  const error = validateStep(3);
+  if (error) {
+    el('formError').textContent = error;
+    el('formError').classList.add('show');
     return;
   }
 
+  const payload = {
+    child_last_name: el('last_name').value.trim(),
+    child_first_name: el('first_name').value.trim(),
+    birth_date: el('birth_date').value,
+    grade: el('grade').value,
+    current_school: el('current_school').value.trim(),
+    parent_name: el('parent_name').value.trim(),
+    phone: el('phone').value.trim(),
+    email: el('email').value.trim(),
+    preferred_date: el('preferred_date').value,
+    preferred_time: el('preferred_time').value,
+    comment: el('comment').value.trim(),
+  };
+
+  const submitBtn = el('submitBtn');
   submitBtn.disabled = true;
   submitBtn.textContent = 'Отправляем…';
 
@@ -130,17 +237,20 @@ form.addEventListener('submit', async (e) => {
     if (!resp.ok) throw new Error(data.error || 'Ошибка отправки');
 
     const statusUrl = `${location.origin}/status.html?token=${data.status_token}`;
-    document.getElementById('statusLink').value = statusUrl;
-    document.getElementById('openStatusBtn').href = statusUrl;
+    el('statusLink').value = statusUrl;
+    el('openStatusBtn').href = statusUrl;
     form.style.display = 'none';
-    document.getElementById('resultCard').style.display = 'block';
+    el('stepIndicator').style.display = 'none';
+    el('resultBlock').style.display = 'block';
   } catch (err) {
-    formError.textContent = err.message;
-    formError.classList.add('show');
+    el('formError').textContent = err.message;
+    el('formError').classList.add('show');
     submitBtn.disabled = false;
     submitBtn.textContent = 'Отправить заявку';
   }
 });
+
+updateIndicator();
 </script>
 </body>
 </html>

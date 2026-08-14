@@ -33,7 +33,7 @@
     </div>
 
     <div class="card" id="actionsCard" style="margin-top:1.25rem; display:none;">
-      <h2 style="font-size:1.05rem; margin-bottom:0.75rem;">Директор предлагает другое время</h2>
+      <h2 style="font-size:1.05rem; margin-bottom:0.75rem;">Секретарь предлагает другое время</h2>
       <div class="mono" id="proposedLine" style="font-size:1.05rem; margin-bottom:1.1rem;"></div>
 
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem;">
@@ -67,9 +67,9 @@ const token = params.get('token');
 
 const el = (id) => document.getElementById(id);
 const STATUS_LABELS = {
-  pending: ['Ожидает ответа директора', 'badge-pending'],
+  pending: ['Ожидает ответа секретаря', 'badge-pending'],
   confirmed: ['Собеседование подтверждено', 'badge-confirmed'],
-  proposed_alternative: ['Директор предложил другое время', 'badge-proposed'],
+  proposed_alternative: ['Секретарь предложил другое время', 'badge-proposed'],
   rejected: ['Заявка отклонена', 'badge-rejected'],
   expired: ['Срок согласования истёк', 'badge-expired'],
 };
@@ -102,7 +102,7 @@ function render(data) {
   el('loading').style.display = 'none';
   el('content').style.display = 'block';
 
-  el('gradeLine').textContent = data.grade;
+  el('gradeLine').textContent = `${data.child_last_name} ${data.child_first_name} — ${data.grade}`;
   const [label, cls] = STATUS_LABELS[data.status] || [data.status, 'badge-pending'];
   const badge = el('statusBadge');
   badge.textContent = label;
@@ -118,8 +118,8 @@ function render(data) {
     el('summaryBlock').textContent = `Запрошено было: ${fmtDate(data.preferred_date)}, ${data.preferred_time}`;
   }
 
-  if (data.director_note) {
-    el('noteBlock').textContent = `Комментарий школы: ${data.director_note}`;
+  if (data.secretary_note) {
+    el('noteBlock').textContent = `Комментарий школы: ${data.secretary_note}`;
   }
 
   if (data.status === 'proposed_alternative') {

@@ -59,6 +59,34 @@
 
       <span class="error-msg" id="respondError"></span>
     </div>
+
+    <div class="card" id="confirmedActionsCard" style="margin-top:1.25rem; display:none;">
+      <h2 style="font-size:1.05rem; margin-bottom:0.75rem;">Планы поменялись?</h2>
+      <p style="color:var(--ink-soft); font-size:0.9rem; margin-bottom:1rem;">
+        Собеседование уже подтверждено, но вы можете отменить запись или предложить другое время.
+      </p>
+
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem;">
+        <button class="btn btn-secondary" id="rescheduleToggleBtn">Перенести время</button>
+        <button class="btn btn-danger" id="cancelBtn">Отменить запись</button>
+      </div>
+
+      <div id="rescheduleForm" style="display:none; border-top:1px solid var(--line); padding-top:1rem; margin-top:0.5rem;">
+        <div class="form-row two-col">
+          <div class="field">
+            <label for="rescheduleDate">Новая дата</label>
+            <input type="date" id="rescheduleDate">
+          </div>
+          <div class="field">
+            <label for="rescheduleTime">Новое время</label>
+            <input type="time" id="rescheduleTime">
+          </div>
+        </div>
+        <button class="btn btn-primary" id="rescheduleSubmitBtn">Отправить на согласование</button>
+      </div>
+
+      <span class="error-msg" id="confirmedActionsError"></span>
+    </div>
   </div>
 </div>
 
@@ -73,6 +101,7 @@ const STATUS_LABELS = {
   proposed_alternative: ['Секретарь предложил другое время', 'badge-proposed'],
   rejected: ['Заявка отклонена', 'badge-rejected'],
   expired: ['Срок согласования истёк', 'badge-expired'],
+  cancelled: ['Запись отменена', 'badge-rejected'],
 };
 
 function fmtDate(d) {
@@ -123,6 +152,9 @@ function render(data) {
     el('noteBlock').textContent = `Комментарий школы: ${data.secretary_note}`;
   }
 
+  el('actionsCard').style.display = 'none';
+  el('confirmedActionsCard').style.display = 'none';
+
   if (data.status === 'proposed_alternative') {
     el('actionsCard').style.display = 'block';
     el('proposedLine').textContent = `${fmtDate(data.proposed_date)}, ${data.proposed_time}`;
@@ -130,11 +162,18 @@ function render(data) {
       el('counterToggleBtn').disabled = true;
       el('counterToggleBtn').title = 'Лимит предложений исчерпан';
     }
+  } else if (data.status === 'confirmed') {
+    el('confirmedActionsCard').style.display = 'block';
+    if (data.round >= data.max_rounds) {
+      el('rescheduleToggleBtn').disabled = true;
+      el('rescheduleToggleBtn').title = 'Лимит согласований исчерпан';
+    }
   }
 }
 
-async function respond(action, extra) {
-  el('respondError').classList.remove('show');
+async function respond(action, extra, errorElId) {
+  const errEl = el(errorElId || 'respondError');
+  errEl.classList.remove('show');
   try {
     const resp = await fetch(`/api/status/${encodeURIComponent(token)}/respond`, {
       method: 'POST',
@@ -145,8 +184,8 @@ async function respond(action, extra) {
     if (!resp.ok) throw new Error(data.error || 'Ошибка');
     await load();
   } catch (e) {
-    el('respondError').textContent = e.message;
-    el('respondError').classList.add('show');
+    errEl.textContent = e.message;
+    errEl.classList.add('show');
   }
 }
 
@@ -166,6 +205,26 @@ el('counterSubmitBtn').addEventListener('click', () => {
     return;
   }
   respond('counter', { counter_date: d, counter_time: t });
+});
+
+el('cancelBtn').addEventListener('click', () => {
+  if (confirm('Точно отменить подтверждённую запись на собеседование?')) {
+    respond('cancel', {}, 'confirmedActionsError');
+  }
+});
+el('rescheduleToggleBtn').addEventListener('click', () => {
+  el('rescheduleForm').style.display = el('rescheduleForm').style.display === 'none' ? 'block' : 'none';
+});
+el('rescheduleSubmitBtn').addEventListener('click', () => {
+  const d = el('rescheduleDate').value;
+  const t = el('rescheduleTime').value;
+  const errEl = el('confirmedActionsError');
+  if (!d || !t) {
+    errEl.textContent = 'Укажите дату и время.';
+    errEl.classList.add('show');
+    return;
+  }
+  respond('reschedule', { new_date: d, new_time: t }, 'confirmedActionsError');
 });
 
 load();

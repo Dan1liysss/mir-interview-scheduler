@@ -12,14 +12,19 @@
  * Роуты:
  *   POST /api/requests                       — родитель подаёт заявку
  *   GET  /api/status/:token                   — родитель смотрит статус своей заявки
- *   POST /api/status/:token/respond            — подтвердить / отклонить / предложить своё время
+ *   POST /api/status/:token/respond            — confirm / decline / counter (пока предложено время),
+ *                                                 cancel / reschedule (когда уже подтверждено)
  *
  *   POST /api/secretary/login                   — вход секретаря по паролю
  *   GET  /api/secretary/requests                 — список всех заявок (нужен Bearer-токен сессии)
  *   GET  /api/secretary/requests/:id             — детали одной заявки (помечает как "просмотрено")
  *   POST /api/secretary/requests/:id/decide       — approve / propose / reject
- *   DELETE /api/secretary/requests/:id              — удалить (только отклонённые)
+ *   DELETE /api/secretary/requests/:id              — удалить (rejected / cancelled / expired)
  *   GET  /api/secretary/export.csv                — выгрузка всех заявок в CSV
+ *
+ * Статусы requests.status:
+ *   pending / confirmed / proposed_alternative / rejected / expired /
+ *   cancelled — родитель сам отменил уже подтверждённую запись.
  *
  * Всё остальное (статика) отдаётся биндингом ASSETS из ./public автоматически.
  */
@@ -221,11 +226,43 @@ async function handleRespond(token, request, env) {
     return err("Некорректный JSON.");
   }
 
+  const ts = nowIso();
+
+  // Действия над уже подтверждённой заявкой — планы могли поменяться и после
+  // того, как секретарь подтвердил время.
+  if (body.action === "cancel") {
+    if (row.status !== "confirmed") return err("Отменить можно только подтверждённую запись.", 409);
+    await env.DB.prepare(`UPDATE requests SET status='cancelled', updated_at=? WHERE status_token=?`)
+      .bind(ts, token)
+      .run();
+    return json({ status: "cancelled" });
+  }
+
+  if (body.action === "reschedule") {
+    if (row.status !== "confirmed") return err("Перенести можно только подтверждённую запись.", 409);
+    if (row.round >= MAX_ROUNDS) {
+      await env.DB.prepare(`UPDATE requests SET status='expired', updated_at=? WHERE status_token=?`)
+        .bind(ts, token)
+        .run();
+      return err("Лимит согласований исчерпан. Пожалуйста, свяжитесь со школой напрямую.", 409);
+    }
+    if (!body.new_date || !body.new_time) return err("Укажите новые дату и время.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.new_date)) return err("Некорректный формат даты.");
+    if (!/^\d{2}:\d{2}$/.test(body.new_time)) return err("Некорректный формат времени.");
+
+    await env.DB.prepare(
+      `UPDATE requests SET status='pending', preferred_date=?, preferred_time=?,
+       round=round+1, seen_by_secretary=0, updated_at=? WHERE status_token=?`
+    )
+      .bind(body.new_date, body.new_time, ts, token)
+      .run();
+    return json({ status: "pending" });
+  }
+
+  // Остальные действия — только пока секретарь предложил своё время и ждёт ответа.
   if (row.status !== "proposed_alternative") {
     return err("Сейчас нет предложенного времени, на которое можно ответить.", 409);
   }
-
-  const ts = nowIso();
 
   if (body.action === "confirm") {
     await env.DB.prepare(
@@ -381,10 +418,10 @@ async function handleSecretaryDelete(id, env) {
   const row = await env.DB.prepare("SELECT status FROM requests WHERE id = ?").bind(id).first();
   if (!row) return err("Заявка не найдена.", 404);
 
-  // Удалять можно только уже отклонённые заявки — так проще случайно не
-  // стереть что-то активное. Остальные статусы сначала нужно отклонить.
-  if (row.status !== "rejected") {
-    return err("Удалять можно только отклонённые заявки.", 409);
+  // Удалять можно только заявки с "завершённым" отрицательным исходом —
+  // так проще случайно не стереть что-то активное или подтверждённое.
+  if (!["rejected", "cancelled", "expired"].includes(row.status)) {
+    return err("Удалять можно только отклонённые, отменённые или истёкшие заявки.", 409);
   }
 
   await env.DB.prepare("DELETE FROM requests WHERE id = ?").bind(id).run();

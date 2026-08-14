@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS requests (
     email TEXT NOT NULL,
     why_school TEXT NOT NULL,
     why_you TEXT NOT NULL,
-    about_you TEXT NOT NULL,
     preferred_date TEXT NOT NULL,
     preferred_time TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',

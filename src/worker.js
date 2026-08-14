@@ -411,6 +411,17 @@ async function handleSecretaryDecide(id, request, env) {
     return json({ status: "rejected" });
   }
 
+  // Секретарь тоже может отменить уже подтверждённое собеседование — не только
+  // родитель (см. respond действия cancel/reschedule). "propose" выше уже
+  // отрабатывает и для confirmed — это и есть "перенести время" со стороны школы.
+  if (body.action === "cancel") {
+    if (row.status !== "confirmed") return err("Отменить можно только подтверждённое собеседование.", 409);
+    await env.DB.prepare("UPDATE requests SET status='cancelled', secretary_note=?, updated_at=? WHERE id=?")
+      .bind(body.note || null, ts, id)
+      .run();
+    return json({ status: "cancelled" });
+  }
+
   return err("Неизвестное действие.");
 }
 

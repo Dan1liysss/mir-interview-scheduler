@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Панель директора — школа «Мир» (концепт)</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .wrap-wide { max-width: 920px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .toolbar-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+  .filter-chip {
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-soft);
+    padding: 0.4rem 0.85rem; border-radius: 999px; font-size: 0.8125rem; cursor: pointer;
+  }
+  .filter-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+  .req-list { display: grid; gap: 0.75rem; }
+  .req-card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.15rem;
+    cursor: pointer;
+  }
+  .req-card.unseen { border-left: 3px solid var(--accent); }
+  .req-card-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+  .req-card-title { font-weight: 700; }
+  .req-card-sub { font-size: 0.8125rem; color: var(--ink-faint); margin-top: 0.2rem; }
+  .req-detail { border-top: 1px solid var(--line); margin-top: 0.85rem; padding-top: 0.85rem; display: none; }
+  .req-detail.open { display: block; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.75rem; font-size: 0.875rem; margin-bottom: 1rem; }
+  .kv .k { color: var(--ink-faint); }
+  .decide-form { display: none; border-top: 1px solid var(--line); padding-top: 0.85rem; margin-top: 0.85rem; }
+  .decide-form.open { display: block; }
+  #loginCard { max-width: 380px; margin: 3rem auto; }
+  #notifyBanner {
+    display: none; align-items: center; justify-content: space-between; gap: 1rem;
+    background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 10px;
+    padding: 0.75rem 1rem; margin-bottom: 1.25rem; font-size: 0.875rem;
+  }
+</style>
+</head>
+<body>
+<div class="banner">
+  <span class="dot"></span>
+  <span><strong>Концепт-прототип</strong> — демонстрация панели директора школы «Мир»</span>
+</div>
+
+<div id="loginView" class="wrap-wide">
+  <div class="card" id="loginCard">
+    <h2 style="font-size:1.2rem; margin-bottom:1rem;">Вход в панель директора</h2>
+    <div class="field">
+      <label for="password">Пароль</label>
+      <input type="password" id="password" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn" style="width:100%;">Войти</button>
+    <span class="error-msg" id="loginError"></span>
+  </div>
+</div>
+
+<div id="panelView" class="wrap-wide" style="display:none;">
+  <div id="notifyBanner">
+    <span>Разреши уведомления браузера, чтобы не пропустить новую заявку, даже если вкладка свёрнута.</span>
+    <button class="btn btn-secondary" id="enableNotifyBtn">Разрешить</button>
+  </div>
+
+  <div class="toolbar">
+    <h1 style="font-size:1.4rem;">Заявки на собеседование</h1>
+    <div class="toolbar-actions">
+      <button class="btn btn-secondary" id="exportBtn">Скачать CSV</button>
+      <button class="btn btn-secondary" id="logoutBtn">Выйти</button>
+    </div>
+  </div>
+
+  <div class="toolbar-actions" style="margin-bottom:1.25rem;">
+    <button class="filter-chip" data-filter="" aria-pressed="true">Все</button>
+    <button class="filter-chip" data-filter="pending">Ждут ответа</button>
+    <button class="filter-chip" data-filter="proposed_alternative">Предложено время</button>
+    <button class="filter-chip" data-filter="confirmed">Подтверждено</button>
+    <button class="filter-chip" data-filter="rejected">Отклонено</button>
+  </div>
+
+  <div id="listEmpty" class="center-note" style="display:none;">Заявок пока нет.</div>
+  <div id="reqList" class="req-list"></div>
+</div>
+
+<script>
+const el = (id) => document.getElementById(id);
+const STATUS_LABELS = {
+  pending: ['Ждёт ответа', 'badge-pending'],
+  confirmed: ['Подтверждено', 'badge-confirmed'],
+  proposed_alternative: ['Предложено время', 'badge-proposed'],
+  rejected: ['Отклонено', 'badge-rejected'],
+  expired: ['Истекло', 'badge-expired'],
+};
+const POLL_MS = 12000;
+
+let sessionToken = localStorage.getItem('director_session') || null;
+let currentFilter = '';
+let knownUnseenIds = new Set();
+let firstLoadDone = false;
+let audioCtx = null;
+
+function fmtDate(d) {
+  if (!d) return '';
+  const [y, m, day] = d.split('-').map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+function fmtDateTime(ts) {
+  return new Date(ts).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// ---------------- auth ----------------
+
+function showLogin() {
+  el('loginView').style.display = 'block';
+  el('panelView').style.display = 'none';
+}
+function showPanel() {
+  el('loginView').style.display = 'none';
+  el('panelView').style.display = 'block';
+}
+
+async function apiFetch(path, options = {}) {
+  const resp = await fetch(path, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${sessionToken}` },
+  });
+  if (resp.status === 401) {
+    sessionToken = null;
+    localStorage.removeItem('director_session');
+    showLogin();
+    throw new Error('Сессия истекла, войдите заново.');
+  }
+  return resp;
+}
+
+el('loginBtn').addEventListener('click', async () => {
+  el('loginError').classList.remove('show');
+  const password = el('password').value;
+  try {
+    const resp = await fetch('/api/director/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Ошибка входа');
+    sessionToken = data.session_token;
+    localStorage.setItem('director_session', sessionToken);
+    el('password').value = '';
+    showPanel();
+    startPolling();
+    maybeShowNotifyBanner();
+  } catch (e) {
+    el('loginError').textContent = e.message;
+    el('loginError').classList.add('show');
+  }
+});
+el('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('loginBtn').click(); });
+
+el('logoutBtn').addEventListener('click', () => {
+  sessionToken = null;
+  localStorage.removeItem('director_session');
+  showLogin();
+});
+
+// ---------------- notifications ----------------
+
+function maybeShowNotifyBanner() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    el('notifyBanner').style.display = 'flex';
+  }
+}
+el('enableNotifyBtn').addEventListener('click', async () => {
+  await Notification.requestPermission();
+  el('notifyBanner').style.display = 'none';
+});
+
+function beep() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 720;
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.4);
+  } catch {}
+}
+
+function notifyNewRequests(count) {
+  beep();
+  document.title = `(${count}) Новая заявка — Панель директора`;
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('Новая заявка на собеседование', {
+      body: `Непросмотренных заявок: ${count}`,
+    });
+  }
+}
+function resetTitle() {
+  document.title = 'Панель директора — школа «Мир» (концепт)';
+}
+
+// ---------------- list rendering ----------------
+
+document.querySelectorAll('.filter-chip').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.filter-chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+    chip.setAttribute('aria-pressed', 'true');
+    currentFilter = chip.dataset.filter;
+    loadList();
+  });
+});
+
+async function loadList(isPoll = false) {
+  try {
+    const qs = currentFilter ? `?status=${encodeURIComponent(currentFilter)}` : '';
+    const resp = await apiFetch(`/api/director/requests${qs}`);
+    const data = await resp.json();
+    renderList(data.requests, isPoll);
+  } catch (e) {
+    // сессия истекла — apiFetch уже показал логин
+  }
+}
+
+function renderList(requests, isPoll) {
+  const listEl = el('reqList');
+  el('listEmpty').style.display = requests.length ? 'none' : 'block';
+
+  const currentUnseen = new Set(requests.filter((r) => !r.seen_by_director).map((r) => r.id));
+
+  if (isPoll && firstLoadDone) {
+    const newlyArrived = [...currentUnseen].filter((id) => !knownUnseenIds.has(id));
+    if (newlyArrived.length > 0) notifyNewRequests(currentUnseen.size);
+  }
+  knownUnseenIds = currentUnseen;
+  if (currentUnseen.size === 0) resetTitle();
+  firstLoadDone = true;
+
+  listEl.innerHTML = '';
+  for (const r of requests) {
+    listEl.appendChild(renderCard(r));
+  }
+}
+
+function renderCard(r) {
+  const card = document.createElement('div');
+  card.className = 'req-card' + (!r.seen_by_director ? ' unseen' : '');
+
+  const [label, cls] = STATUS_LABELS[r.status] || [r.status, 'badge-pending'];
+
+  card.innerHTML = `
+    <div class="req-card-head">
+      <div>
+        <div class="req-card-title">${escapeHtml(r.child_name)} — ${escapeHtml(r.grade)}</div>
+        <div class="req-card-sub">Запрошено: ${fmtDate(r.preferred_date)}, ${r.preferred_time} · заявка от ${fmtDateTime(r.created_at)}</div>
+      </div>
+      <span class="badge ${cls}">${label}</span>
+    </div>
+    <div class="req-detail" id="detail-${r.id}"></div>
+  `;
+
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.decide-form') || e.target.closest('button') || e.target.closest('input') || e.target.closest('textarea')) return;
+    toggleDetail(r.id, card);
+  });
+
+  return card;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function toggleDetail(id, card) {
+  const detailEl = card.querySelector('.req-detail');
+  const isOpen = detailEl.classList.contains('open');
+  if (isOpen) { detailEl.classList.remove('open'); return; }
+
+  const resp = await apiFetch(`/api/director/requests/${id}`);
+  const r = await resp.json();
+  detailEl.innerHTML = renderDetailHtml(r);
+  detailEl.classList.add('open');
+  card.classList.remove('unseen');
+  wireDetailActions(detailEl, r);
+
+  // помечен просмотренным на бэкенде — уберём из счётчика непрочитанных локально
+  knownUnseenIds.delete(id);
+  if (knownUnseenIds.size === 0) resetTitle();
+}
+
+function renderDetailHtml(r) {
+  const actionsDisabled = ['confirmed', 'rejected', 'expired'].includes(r.status);
+  return `
+    <div class="kv">
+      <span class="k">Родитель</span><span>${escapeHtml(r.parent_name)}</span>
+      <span class="k">Телефон</span><span>${escapeHtml(r.phone)}</span>
+      <span class="k">Email</span><span>${escapeHtml(r.email)}</span>
+      ${r.comment ? `<span class="k">Комментарий</span><span>${escapeHtml(r.comment)}</span>` : ''}
+      <span class="k">Раунд согласования</span><span>${r.round} из 3</span>
+      ${r.director_note ? `<span class="k">Заметка школы</span><span>${escapeHtml(r.director_note)}</span>` : ''}
+    </div>
+    ${actionsDisabled ? '' : `
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+      <button class="btn btn-primary act-approve">Подтвердить это время</button>
+      <button class="btn btn-secondary act-propose-toggle">Предложить другое время</button>
+      <button class="btn btn-danger act-reject">Отклонить</button>
+    </div>
+    <div class="decide-form propose-form">
+      <div class="form-row two-col">
+        <div class="field"><label>Дата</label><input type="date" class="propose-date"></div>
+        <div class="field"><label>Время</label><input type="time" class="propose-time"></div>
+      </div>
+      <div class="field"><label>Заметка родителю (необязательно)</label><input type="text" class="propose-note"></div>
+      <button class="btn btn-primary act-propose-submit">Отправить предложение</button>
+    </div>
+    <span class="error-msg decide-error"></span>
+    `}
+  `;
+}
+
+function wireDetailActions(detailEl, r) {
+  const errEl = detailEl.querySelector('.decide-error');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.classList.add('show'); } };
+
+  const approveBtn = detailEl.querySelector('.act-approve');
+  if (approveBtn) approveBtn.addEventListener('click', async () => {
+    try {
+      const resp = await apiFetch(`/api/director/requests/${r.id}/decide`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'approve' }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error);
+      loadList();
+    } catch (e) { showErr(e.message); }
+  });
+
+  const rejectBtn = detailEl.querySelector('.act-reject');
+  if (rejectBtn) rejectBtn.addEventListener('click', async () => {
+    try {
+      const resp = await apiFetch(`/api/director/requests/${r.id}/decide`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'reject' }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error);
+      loadList();
+    } catch (e) { showErr(e.message); }
+  });
+
+  const proposeToggle = detailEl.querySelector('.act-propose-toggle');
+  const proposeForm = detailEl.querySelector('.propose-form');
+  if (proposeToggle) proposeToggle.addEventListener('click', () => {
+    proposeForm.classList.toggle('open');
+  });
+
+  const proposeSubmit = detailEl.querySelector('.act-propose-submit');
+  if (proposeSubmit) proposeSubmit.addEventListener('click', async () => {
+    const date = detailEl.querySelector('.propose-date').value;
+    const time = detailEl.querySelector('.propose-time').value;
+    const note = detailEl.querySelector('.propose-note').value;
+    if (!date || !time) { showErr('Укажите дату и время.'); return; }
+    try {
+      const resp = await apiFetch(`/api/director/requests/${r.id}/decide`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'propose', date, time, note }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error);
+      loadList();
+    } catch (e) { showErr(e.message); }
+  });
+}
+
+// ---------------- export ----------------
+
+el('exportBtn').addEventListener('click', async () => {
+  const resp = await apiFetch('/api/director/export.csv');
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'interview-requests.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+});
+
+// ---------------- polling ----------------
+
+let pollTimer = null;
+function startPolling() {
+  loadList();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(() => loadList(true), POLL_MS);
+}
+
+// ---------------- init ----------------
+
+if (sessionToken) {
+  showPanel();
+  startPolling();
+  maybeShowNotifyBanner();
+} else {
+  showLogin();
+}
+</script>
+</body>
+</html>

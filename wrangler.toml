@@ -1,0 +1,17 @@
+name = "mir-interview-scheduler"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+account_id = "3028cf895baff06985f593704f331743"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mir-interview-scheduler"
+database_id = "6900216a-6198-4159-88a8-ee096633f9a4"
+
+# DIRECTOR_PASSWORD задаётся отдельно секретом:
+#   npx wrangler secret put DIRECTOR_PASSWORD
+# (сюда, в открытый файл, пароль не пишем)

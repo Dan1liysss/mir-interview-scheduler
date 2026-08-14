@@ -1,0 +1,410 @@
+/**
+ * mir-interview-scheduler — Cloudflare Worker
+ *
+ * Концепт-система записи на собеседование при поступлении в школу «Мир».
+ * ВАЖНО: это демонстрационный прототип, не подключённый к реальной приёмной
+ * комиссии школы. Все данные (пароль директора, база) — тестовые/учебные.
+ *
+ * Роуты:
+ *   POST /api/requests                       — родитель подаёт заявку
+ *   GET  /api/status/:token                   — родитель смотрит статус своей заявки
+ *   POST /api/status/:token/respond            — подтвердить / отклонить / предложить своё время
+ *
+ *   POST /api/director/login                   — вход директора по паролю
+ *   GET  /api/director/requests                 — список всех заявок (нужен Bearer-токен сессии)
+ *   GET  /api/director/requests/:id             — детали одной заявки (помечает как "просмотрено")
+ *   POST /api/director/requests/:id/decide       — approve / propose / reject
+ *   GET  /api/director/export.csv                — выгрузка всех заявок в CSV
+ *
+ * Всё остальное (статика) отдаётся биндингом ASSETS из ./public автоматически.
+ */
+
+const MAX_ROUNDS = 3; // сколько раз родитель и директор могут перепредлагать время, прежде чем заявка "протухнет"
+const SESSION_TTL_HOURS = 12;
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+function err(message, status = 400) {
+  return json({ error: message }, status);
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function randomToken(byteLength = 24) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  let str = "";
+  for (const b of bytes) str += String.fromCharCode(b);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function constantTimeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+const REQUIRED_FIELDS = ["grade", "child_name", "parent_name", "phone", "email", "preferred_date", "preferred_time"];
+
+function validateRequestBody(body) {
+  for (const f of REQUIRED_FIELDS) {
+    if (!body[f] || typeof body[f] !== "string" || !body[f].trim()) {
+      return `Поле "${f}" обязательно.`;
+    }
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(body.preferred_date)) return "Некорректный формат даты.";
+  if (!/^\d{2}:\d{2}$/.test(body.preferred_time)) return "Некорректный формат времени.";
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email);
+  if (!emailOk) return "Некорректный email.";
+  return null;
+}
+
+function publicRequestView(row) {
+  // То, что можно безопасно показать родителю по его личной ссылке.
+  return {
+    id: row.id,
+    status: row.status,
+    grade: row.grade,
+    child_name: row.child_name,
+    preferred_date: row.preferred_date,
+    preferred_time: row.preferred_time,
+    proposed_date: row.proposed_date,
+    proposed_time: row.proposed_time,
+    director_note: row.director_note,
+    round: row.round,
+    max_rounds: MAX_ROUNDS,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+// --------------------------------------------------------------------------
+// Director auth
+// --------------------------------------------------------------------------
+
+async function requireDirector(request, env) {
+  const auth = request.headers.get("Authorization") || "";
+  const m = auth.match(/^Bearer\s+(.+)$/);
+  if (!m) return null;
+  const token = m[1];
+  const row = await env.DB.prepare(
+    "SELECT token, expires_at FROM director_sessions WHERE token = ?"
+  )
+    .bind(token)
+    .first();
+  if (!row) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  return token;
+}
+
+// --------------------------------------------------------------------------
+// Public: заявка родителя
+// --------------------------------------------------------------------------
+
+async function handleCreateRequest(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err("Некорректный JSON.");
+  }
+
+  const validationError = validateRequestBody(body);
+  if (validationError) return err(validationError);
+
+  const statusToken = randomToken(24);
+  const ts = nowIso();
+
+  await env.DB.prepare(
+    `INSERT INTO requests
+      (status_token, grade, child_name, parent_name, phone, email, comment,
+       preferred_date, preferred_time, status, round, seen_by_director, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, 0, ?, ?)`
+  )
+    .bind(
+      statusToken,
+      body.grade.trim(),
+      body.child_name.trim(),
+      body.parent_name.trim(),
+      body.phone.trim(),
+      body.email.trim(),
+      (body.comment || "").trim(),
+      body.preferred_date,
+      body.preferred_time,
+      ts,
+      ts
+    )
+    .run();
+
+  return json({ status_token: statusToken });
+}
+
+async function handleGetStatus(token, env) {
+  const row = await env.DB.prepare("SELECT * FROM requests WHERE status_token = ?")
+    .bind(token)
+    .first();
+  if (!row) return err("Заявка не найдена. Проверьте ссылку.", 404);
+  return json(publicRequestView(row));
+}
+
+async function handleRespond(token, request, env) {
+  const row = await env.DB.prepare("SELECT * FROM requests WHERE status_token = ?")
+    .bind(token)
+    .first();
+  if (!row) return err("Заявка не найдена.", 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err("Некорректный JSON.");
+  }
+
+  if (row.status !== "proposed_alternative") {
+    return err("Сейчас нет предложенного времени, на которое можно ответить.", 409);
+  }
+
+  const ts = nowIso();
+
+  if (body.action === "confirm") {
+    await env.DB.prepare(
+      `UPDATE requests SET status='confirmed', preferred_date=proposed_date, preferred_time=proposed_time,
+       proposed_date=NULL, proposed_time=NULL, updated_at=? WHERE status_token=?`
+    )
+      .bind(ts, token)
+      .run();
+    return json({ status: "confirmed" });
+  }
+
+  if (body.action === "decline") {
+    await env.DB.prepare(`UPDATE requests SET status='rejected', updated_at=? WHERE status_token=?`)
+      .bind(ts, token)
+      .run();
+    return json({ status: "rejected" });
+  }
+
+  if (body.action === "counter") {
+    if (row.round >= MAX_ROUNDS) {
+      await env.DB.prepare(`UPDATE requests SET status='expired', updated_at=? WHERE status_token=?`)
+        .bind(ts, token)
+        .run();
+      return err("Лимит предложений по времени исчерпан. Пожалуйста, свяжитесь со школой напрямую.", 409);
+    }
+    if (!body.counter_date || !body.counter_time) return err("Укажите дату и время.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.counter_date)) return err("Некорректный формат даты.");
+    if (!/^\d{2}:\d{2}$/.test(body.counter_time)) return err("Некорректный формат времени.");
+
+    await env.DB.prepare(
+      `UPDATE requests SET status='pending', preferred_date=?, preferred_time=?,
+       proposed_date=NULL, proposed_time=NULL, round=round+1, seen_by_director=0, updated_at=?
+       WHERE status_token=?`
+    )
+      .bind(body.counter_date, body.counter_time, ts, token)
+      .run();
+    return json({ status: "pending" });
+  }
+
+  return err("Неизвестное действие.");
+}
+
+// --------------------------------------------------------------------------
+// Director API
+// --------------------------------------------------------------------------
+
+async function handleDirectorLogin(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err("Некорректный JSON.");
+  }
+  const password = body.password || "";
+  const expected = env.DIRECTOR_PASSWORD || "";
+  if (!expected || !constantTimeEqual(password, expected)) {
+    return err("Неверный пароль.", 401);
+  }
+
+  const token = randomToken(32);
+  const ts = new Date();
+  const expiresAt = new Date(ts.getTime() + SESSION_TTL_HOURS * 3600 * 1000);
+
+  await env.DB.prepare(
+    "INSERT INTO director_sessions (token, created_at, expires_at) VALUES (?, ?, ?)"
+  )
+    .bind(token, ts.toISOString(), expiresAt.toISOString())
+    .run();
+
+  return json({ session_token: token, expires_at: expiresAt.toISOString() });
+}
+
+async function handleDirectorListRequests(request, env) {
+  const url = new URL(request.url);
+  const statusFilter = url.searchParams.get("status");
+
+  let query = "SELECT * FROM requests";
+  const params = [];
+  if (statusFilter) {
+    query += " WHERE status = ?";
+    params.push(statusFilter);
+  }
+  query += " ORDER BY created_at DESC";
+
+  const { results } = await env.DB.prepare(query)
+    .bind(...params)
+    .all();
+
+  return json({ requests: results });
+}
+
+async function handleDirectorGetOne(id, env) {
+  const row = await env.DB.prepare("SELECT * FROM requests WHERE id = ?").bind(id).first();
+  if (!row) return err("Заявка не найдена.", 404);
+
+  if (!row.seen_by_director) {
+    await env.DB.prepare("UPDATE requests SET seen_by_director = 1 WHERE id = ?").bind(id).run();
+    row.seen_by_director = 1;
+  }
+  return json(row);
+}
+
+async function handleDirectorDecide(id, request, env) {
+  const row = await env.DB.prepare("SELECT * FROM requests WHERE id = ?").bind(id).first();
+  if (!row) return err("Заявка не найдена.", 404);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return err("Некорректный JSON.");
+  }
+
+  const ts = nowIso();
+
+  if (body.action === "approve") {
+    await env.DB.prepare(
+      "UPDATE requests SET status='confirmed', director_note=?, updated_at=? WHERE id=?"
+    )
+      .bind(body.note || null, ts, id)
+      .run();
+    return json({ status: "confirmed" });
+  }
+
+  if (body.action === "propose") {
+    if (!body.date || !body.time) return err("Укажите предлагаемые дату и время.");
+    if (row.round >= MAX_ROUNDS) {
+      await env.DB.prepare("UPDATE requests SET status='expired', updated_at=? WHERE id=?")
+        .bind(ts, id)
+        .run();
+      return err("Лимит согласований исчерпан — свяжитесь с родителем напрямую.", 409);
+    }
+    await env.DB.prepare(
+      `UPDATE requests SET status='proposed_alternative', proposed_date=?, proposed_time=?,
+       director_note=?, round=round+1, updated_at=? WHERE id=?`
+    )
+      .bind(body.date, body.time, body.note || null, ts, id)
+      .run();
+    return json({ status: "proposed_alternative" });
+  }
+
+  if (body.action === "reject") {
+    await env.DB.prepare("UPDATE requests SET status='rejected', director_note=?, updated_at=? WHERE id=?")
+      .bind(body.note || null, ts, id)
+      .run();
+    return json({ status: "rejected" });
+  }
+
+  return err("Неизвестное действие.");
+}
+
+function csvEscape(value) {
+  const s = String(value ?? "");
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+async function handleDirectorExportCsv(env) {
+  const { results } = await env.DB.prepare("SELECT * FROM requests ORDER BY created_at DESC").all();
+  const cols = [
+    "id", "status", "grade", "child_name", "parent_name", "phone", "email", "comment",
+    "preferred_date", "preferred_time", "proposed_date", "proposed_time", "director_note",
+    "round", "created_at", "updated_at",
+  ];
+  const lines = [cols.join(",")];
+  for (const row of results) {
+    lines.push(cols.map((c) => csvEscape(row[c])).join(","));
+  }
+  const csv = "﻿" + lines.join("\r\n"); // BOM для корректной кириллицы в Excel
+
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": 'attachment; filename="interview-requests.csv"',
+    },
+  });
+}
+
+// --------------------------------------------------------------------------
+// Router
+// --------------------------------------------------------------------------
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
+
+    try {
+      if (path === "/api/requests" && method === "POST") {
+        return await handleCreateRequest(request, env);
+      }
+
+      let m;
+
+      if ((m = path.match(/^\/api\/status\/([^/]+)$/)) && method === "GET") {
+        return await handleGetStatus(m[1], env);
+      }
+
+      if ((m = path.match(/^\/api\/status\/([^/]+)\/respond$/)) && method === "POST") {
+        return await handleRespond(m[1], request, env);
+      }
+
+      if (path === "/api/director/login" && method === "POST") {
+        return await handleDirectorLogin(request, env);
+      }
+
+      if (path.startsWith("/api/director/")) {
+        const sessionToken = await requireDirector(request, env);
+        if (!sessionToken) return err("Требуется вход в панель директора.", 401);
+
+        if (path === "/api/director/requests" && method === "GET") {
+          return await handleDirectorListRequests(request, env);
+        }
+        if ((m = path.match(/^\/api\/director\/requests\/(\d+)$/)) && method === "GET") {
+          return await handleDirectorGetOne(Number(m[1]), env);
+        }
+        if ((m = path.match(/^\/api\/director\/requests\/(\d+)\/decide$/)) && method === "POST") {
+          return await handleDirectorDecide(Number(m[1]), request, env);
+        }
+        if (path === "/api/director/export.csv" && method === "GET") {
+          return await handleDirectorExportCsv(env);
+        }
+      }
+
+      if (path.startsWith("/api/")) return err("Не найдено.", 404);
+
+      // Всё остальное — статика (public/) через ASSETS-биндинг
+      return env.ASSETS.fetch(request);
+    } catch (e) {
+      return err("Внутренняя ошибка сервера: " + (e && e.message ? e.message : String(e)), 500);
+    }
+  },
+};

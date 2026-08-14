@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Статус заявки — школа «Мир» (концепт)</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="banner">
+  <span class="dot"></span>
+  <span><strong>Концепт-прототип</strong> — демонстрация идеи для сайта школы «Мир»</span>
+</div>
+
+<div class="wrap">
+  <span class="eyebrow">Ваша заявка</span>
+  <h1>Статус записи на собеседование</h1>
+
+  <div id="loading" class="center-note"><span class="spinner"></span>&nbsp; Загружаем…</div>
+  <div id="notFound" class="card" style="display:none;">
+    <p>Заявка не найдена. Проверьте, что ссылка скопирована полностью.</p>
+  </div>
+
+  <div id="content" style="display:none;">
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem;">
+        <h2 style="font-size:1.15rem;" id="gradeLine"></h2>
+        <span class="badge" id="statusBadge"></span>
+      </div>
+
+      <div id="summaryBlock" class="mono" style="font-size:0.95rem; color:var(--ink-soft); margin-bottom:0.5rem;"></div>
+      <div id="noteBlock" style="font-size:0.875rem; color:var(--ink-soft); margin-top:0.5rem;"></div>
+    </div>
+
+    <div class="card" id="actionsCard" style="margin-top:1.25rem; display:none;">
+      <h2 style="font-size:1.05rem; margin-bottom:0.75rem;">Директор предлагает другое время</h2>
+      <div class="mono" id="proposedLine" style="font-size:1.05rem; margin-bottom:1.1rem;"></div>
+
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1rem;">
+        <button class="btn btn-primary" id="confirmBtn">Подтверждаю это время</button>
+        <button class="btn btn-secondary" id="counterToggleBtn">Предложить своё время</button>
+        <button class="btn btn-danger" id="declineBtn">Отказаться от записи</button>
+      </div>
+
+      <div id="counterForm" style="display:none; border-top:1px solid var(--line); padding-top:1rem; margin-top:0.5rem;">
+        <div class="form-row two-col">
+          <div class="field">
+            <label for="counterDate">Ваша дата</label>
+            <input type="date" id="counterDate">
+          </div>
+          <div class="field">
+            <label for="counterTime">Ваше время</label>
+            <input type="time" id="counterTime">
+          </div>
+        </div>
+        <button class="btn btn-primary" id="counterSubmitBtn">Отправить предложение</button>
+      </div>
+
+      <span class="error-msg" id="respondError"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get('token');
+
+const el = (id) => document.getElementById(id);
+const STATUS_LABELS = {
+  pending: ['Ожидает ответа директора', 'badge-pending'],
+  confirmed: ['Собеседование подтверждено', 'badge-confirmed'],
+  proposed_alternative: ['Директор предложил другое время', 'badge-proposed'],
+  rejected: ['Заявка отклонена', 'badge-rejected'],
+  expired: ['Срок согласования истёк', 'badge-expired'],
+};
+
+function fmtDate(d) {
+  if (!d) return '';
+  const [y, m, day] = d.split('-').map(Number);
+  const dt = new Date(y, m - 1, day);
+  return dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+async function load() {
+  if (!token) {
+    el('loading').style.display = 'none';
+    el('notFound').style.display = 'block';
+    return;
+  }
+  try {
+    const resp = await fetch(`/api/status/${encodeURIComponent(token)}`);
+    if (!resp.ok) throw new Error();
+    const data = await resp.json();
+    render(data);
+  } catch {
+    el('loading').style.display = 'none';
+    el('notFound').style.display = 'block';
+  }
+}
+
+function render(data) {
+  el('loading').style.display = 'none';
+  el('content').style.display = 'block';
+
+  el('gradeLine').textContent = data.grade;
+  const [label, cls] = STATUS_LABELS[data.status] || [data.status, 'badge-pending'];
+  const badge = el('statusBadge');
+  badge.textContent = label;
+  badge.className = 'badge ' + cls;
+
+  if (data.status === 'confirmed') {
+    el('summaryBlock').textContent = `${fmtDate(data.preferred_date)}, ${data.preferred_time}`;
+  } else if (data.status === 'pending') {
+    el('summaryBlock').textContent = `Запрошено: ${fmtDate(data.preferred_date)}, ${data.preferred_time}`;
+  } else if (data.status === 'proposed_alternative') {
+    el('summaryBlock').textContent = `Вы запрашивали: ${fmtDate(data.preferred_date)}, ${data.preferred_time}`;
+  } else {
+    el('summaryBlock').textContent = `Запрошено было: ${fmtDate(data.preferred_date)}, ${data.preferred_time}`;
+  }
+
+  if (data.director_note) {
+    el('noteBlock').textContent = `Комментарий школы: ${data.director_note}`;
+  }
+
+  if (data.status === 'proposed_alternative') {
+    el('actionsCard').style.display = 'block';
+    el('proposedLine').textContent = `${fmtDate(data.proposed_date)}, ${data.proposed_time}`;
+    if (data.round >= data.max_rounds) {
+      el('counterToggleBtn').disabled = true;
+      el('counterToggleBtn').title = 'Лимит предложений исчерпан';
+    }
+  }
+}
+
+async function respond(action, extra) {
+  el('respondError').classList.remove('show');
+  try {
+    const resp = await fetch(`/api/status/${encodeURIComponent(token)}/respond`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action, ...extra }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Ошибка');
+    await load();
+  } catch (e) {
+    el('respondError').textContent = e.message;
+    el('respondError').classList.add('show');
+  }
+}
+
+el('confirmBtn').addEventListener('click', () => respond('confirm'));
+el('declineBtn').addEventListener('click', () => {
+  if (confirm('Точно отказаться от записи на собеседование?')) respond('decline');
+});
+el('counterToggleBtn').addEventListener('click', () => {
+  el('counterForm').style.display = el('counterForm').style.display === 'none' ? 'block' : 'none';
+});
+el('counterSubmitBtn').addEventListener('click', () => {
+  const d = el('counterDate').value;
+  const t = el('counterTime').value;
+  if (!d || !t) {
+    el('respondError').textContent = 'Укажите дату и время.';
+    el('respondError').classList.add('show');
+    return;
+  }
+  respond('counter', { counter_date: d, counter_time: t });
+});
+
+load();
+</script>
+</body>
+</html>
